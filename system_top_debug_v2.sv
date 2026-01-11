@@ -88,9 +88,9 @@ module system_top_debug_v2 (
         .ready(xtea_ready)
     );
 
-    // Mem1: Initialized with Plaintext
-    // Content: 11 22 33 44 55 66 77 88
-    single_port_ram #(.INIT_TYPE(1)) ram_mem1 (
+    // Mem1: Initialized with Ciphertext
+    // Content: C3 B9 0E B5 22 56 FE 61
+    single_port_ram #(.INIT_TYPE(3)) ram_mem1 (
         .clk(clk), .we(1'b0), .addr(mem1_addr), .din(8'h00), .dout(mem1_data_out)
     );
 

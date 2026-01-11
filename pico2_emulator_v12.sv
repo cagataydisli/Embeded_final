@@ -197,7 +197,7 @@ module pico2_emulator_v12 (
                 // =====================================================
                 S_START_ENC: begin
                     port_id <= 8'h33; 
-                    out_port <= 8'h01; // Bit 0=1 (Start), Bit 1=0 (Encrypt)
+                    out_port <= 8'h03; // Bit 0=1 (Start), Bit 1=1 (Decrypt)
                     write_strobe <= 1;
                     state <= S_WAIT_READY;
                 end

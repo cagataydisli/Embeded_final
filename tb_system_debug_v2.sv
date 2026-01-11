@@ -22,11 +22,11 @@ module tb_system_debug_v2;
         rst = 0;
         
         $display("==============================================");
-        $display("XTEA Encryption Test - v12 (Fixed Key Loading)");
+        $display("XTEA Decryption Test - v12 (Fixed Key Loading)");
         $display("==============================================");
-        $display("Plaintext: 11 22 33 44 55 66 77 88");
+        $display("Ciphertext: C3 B9 0E B5 22 56 FE 61");
         $display("Key:       00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F");
-        $display("Expected:  C3 B9 0E B5 22 56 FE 61 (32 rounds, standard)");
+        $display("Expected:  11 22 33 44 55 66 77 88 (Plaintext)");
         $display("==============================================");
 
         // Run until completion or timeout

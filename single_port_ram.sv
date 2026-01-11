@@ -46,6 +46,16 @@ module single_port_ram #(
             ram[13] = 8'h0D;
             ram[14] = 8'h0E;
             ram[15] = 8'h0F;
+        end else if (INIT_TYPE == 3) begin
+            // Ciphertext: C3 B9 0E B5 22 56 FE 61
+            ram[0] = 8'hC3;
+            ram[1] = 8'hB9;
+            ram[2] = 8'h0E;
+            ram[3] = 8'hB5;
+            ram[4] = 8'h22;
+            ram[5] = 8'h56;
+            ram[6] = 8'hFE;
+            ram[7] = 8'h61;
         end
     end
 

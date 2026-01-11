@@ -64,7 +64,7 @@ xelab -debug typical tb_system_debug_v2 -s sim_test
 xsim sim_test -runall
 ```
 
-### Expected Output
+### Expected Output (Encryption)
 ```
 --- FINAL RESULTS (Mem3) ---
 Addr 0: c3
@@ -75,6 +75,19 @@ Addr 4: 22
 Addr 5: 56
 Addr 6: fe
 Addr 7: 61
+```
+
+### Expected Output (Decryption)
+```
+--- FINAL RESULTS (Mem3) ---
+Addr 0: 11
+Addr 1: 22
+Addr 2: 33
+Addr 3: 44
+Addr 4: 55
+Addr 5: 66
+Addr 6: 77
+Addr 7: 88
 ```
 
 ## Key Features
