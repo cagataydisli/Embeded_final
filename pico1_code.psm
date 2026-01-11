@@ -1,0 +1,44 @@
+; ==========================================================
+; PICO 1 CODE - Data Fetcher
+; Görevi: Main Mem1'den veriyi okuyup Comm Buffer (FIFO)'ya atar.
+; ==========================================================
+
+; --- Port Tanımları (system_top.sv ile uyumlu) ---
+CONSTANT MEM_ADDR_PORT, 01  ; Çıkış: Bellek Adresi
+CONSTANT MEM_DATA_PORT, 02  ; Giriş: Bellek Verisi
+CONSTANT FIFO_DATA_PORT, 03 ; Çıkış: FIFO Veri Yaz
+CONSTANT FIFO_STATUS_PORT, 04 ; Giriş: FIFO Dolu mu? (Bit 0: Full)
+
+; --- Register Tanımları ---
+; s0: Bellekten okunan veri
+; s1: Mevcut Adres Sayacı
+; s2: FIFO Durum Bayrağı
+; s3: Genel Amaçlı
+
+START:
+    LOAD s1, 00             ; Adres sayacını sıfırla
+
+MAIN_LOOP:
+    ; 1. Bellek Adresini Ayarla
+    OUTPUT s1, MEM_ADDR_PORT
+    
+    ; 2. Veriyi Oku (Bellek gecikmesi varsa NOP eklenebilir ama cycle yeterli)
+    INPUT s0, MEM_DATA_PORT
+    
+CHECK_FIFO:
+    ; 3. FIFO Dolu mu Kontrol Et
+    INPUT s2, FIFO_STATUS_PORT
+    AND s2, 01              ; Maskeleme (LSB Full flag)
+    JUMP NZ, CHECK_FIFO     ; Eğer 1 ise (Dolu) tekrar kontrol et
+
+WRITE_FIFO:
+    ; 4. Veriyi FIFO'ya Yaz
+    OUTPUT s0, FIFO_DATA_PORT
+    
+    ; 5. Adresi Artır
+    ADD s1, 01
+    
+    ; 6. Döngü (Sonsuza kadar veya belirli bir yere kadar)
+    ; Örnek: 64 Byte sonra dursun istersen buraya kontrol koyabilirsin.
+    ; Şimdilik sonsuz döngü yaparak sürekli veri basıyor.
+    JUMP MAIN_LOOP

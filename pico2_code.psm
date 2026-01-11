@@ -1,0 +1,132 @@
+; ==========================================================
+; PICO 2 CODE - Processor & Crypto Controller
+; Görevi: Key yükle -> FIFO'dan Oku -> XTEA Şifrele -> Mem3'e Yaz
+; ==========================================================
+
+; --- Port Tanımları (system_top.sv ile uyumlu) ---
+; FIFO Ports
+CONSTANT FIFO_READ_STROBE, 10
+CONSTANT FIFO_DATA_IN,     11
+CONSTANT FIFO_STATUS,      12 ; Bit 0: Has Data (1=Var, 0=Boş)
+
+; Mem2 (Key) Ports
+CONSTANT KEY_ADDR_SET,     20
+CONSTANT KEY_DATA_READ,    21
+
+; XTEA Ports
+CONSTANT XTEA_KEY_LOAD,    30
+CONSTANT XTEA_DATA_LOAD,   31
+CONSTANT XTEA_RESET_PTR,   32 ; Pointerları sıfırla
+CONSTANT XTEA_CONTROL,     33 ; Bit 0: Start, Bit 1: Decrypt
+CONSTANT XTEA_STATUS,      34 ; Bit 0: Ready
+CONSTANT XTEA_RESULT_READ, 35
+
+; Mem3 (Dest) Ports
+CONSTANT MEM3_ADDR_SET,    40
+CONSTANT MEM3_DATA_WRITE,  41
+
+; --- Register Tanımları ---
+; s0: Veri / Geçici Register
+; s1: Döngü Sayacı (Byte counter)
+; s2: Durum Bayrağı
+; s3: Mem2 (Key) Adresi
+; s4: Mem3 (Dest) Adresi
+; s5: Şifreleme Modu (00: Encrypt, 02: Decrypt - Bit 1 set ise decrypt)
+
+START:
+    LOAD s3, 00 ; Anahtar Adresi Başlangıç
+    LOAD s4, 00 ; Hedef Adres Başlangıç
+    LOAD s5, 00 ; Mod: Encrypt (Decrypt için LOAD s5, 02 yap)
+
+    ; Önce XTEA Pointerlarını Sıfırla
+    OUTPUT s0, XTEA_RESET_PTR
+
+; ----------------------------------------------------------
+; ADIM 1: ANAHTARI YÜKLE (16 Byte - 128 bit)
+; ----------------------------------------------------------
+LOAD_KEY:
+    LOAD s1, 10 ; 16 (Decimal 16 = Hex 10) byte yükleyeceğiz
+
+KEY_LOOP:
+    ; Key Adresini Set Et
+    OUTPUT s3, KEY_ADDR_SET
+    
+    ; Key Verisini Oku
+    INPUT s0, KEY_DATA_READ
+    
+    ; XTEA Key Portuna Yaz (Otomatik pointer artar)
+    OUTPUT s0, XTEA_KEY_LOAD
+    
+    ; Adres ve Sayaç Güncelle
+    ADD s3, 01
+    SUB s1, 01
+    JUMP NZ, KEY_LOOP ; 16 bayt bitmediyse devam
+
+; ----------------------------------------------------------
+; ADIM 2: VERİ İŞLEME DÖNGÜSÜ (Process Loop)
+; ----------------------------------------------------------
+PROCESS_NEXT_BLOCK:
+    LOAD s1, 08 ; XTEA Bloğu 8 Byte (64-bit)
+
+FETCH_BLOCK:
+    ; FIFO'da Veri Var mı?
+    INPUT s2, FIFO_STATUS
+    AND s2, 01
+    JUMP Z, FETCH_BLOCK ; Veri yoksa bekle (Empty)
+
+    ; FIFO Read Strobe gönder (Bir sonraki veriyi hazırlar)
+    OUTPUT s0, FIFO_READ_STROBE
+    
+    ; Veriyi Oku (FIFO_DATA_IN portundan)
+    INPUT s0, FIFO_DATA_IN
+    
+    ; XTEA Data Portuna Yaz
+    OUTPUT s0, XTEA_DATA_LOAD
+    
+    ; 8 Byte tamamlandı mı?
+    SUB s1, 01
+    JUMP NZ, FETCH_BLOCK
+
+; ----------------------------------------------------------
+; ADIM 3: ŞİFRELEME / DEŞİFRELEME BAŞLAT
+; ----------------------------------------------------------
+START_XTEA:
+    ; Kontrol Portuna Yaz (Bit 0: Start, Bit 1: Decrypt/Mode)
+    ; s5 register'ında mod bilgisi var (0 veya 2)
+    LOAD s0, 01 ; Start Bit
+    OR s0, s5   ; Mod ile birleştir
+    OUTPUT s0, XTEA_CONTROL
+
+WAIT_XTEA:
+    ; XTEA Ready olana kadar bekle
+    INPUT s2, XTEA_STATUS
+    AND s2, 01
+    JUMP Z, WAIT_XTEA ; Ready=0 ise bekle
+
+; ----------------------------------------------------------
+; ADIM 4: SONUCU AL VE KAYDET
+; ----------------------------------------------------------
+SAVE_RESULT:
+    LOAD s1, 08 ; 8 Byte sonuç okuyacağız
+
+RESULT_LOOP:
+    ; XTEA Sonucunu Oku (Her okumada internal pointer artar)
+    ; Okumadan önce veya okuma sırasında strobe gerekebilir ama
+    ; bizim tasarımda INPUT işlemi otomatik data getiriyor.
+    ; ÖNEMLİ: system_top'da 0x35'ten okumak için 'Read Strobe' kullanıldı.
+    ; PicoBlaze INPUT komutu otomatik Read Strobe üretir.
+    INPUT s0, XTEA_RESULT_READ
+    
+    ; Hedef Adresi Set Et
+    OUTPUT s4, MEM3_ADDR_SET
+    
+    ; Hedef Veriyi Yaz (Otomatik Write Enable oluşur)
+    OUTPUT s0, MEM3_DATA_WRITE
+    
+    ; Adresi ve Sayacı Güncelle
+    ADD s4, 01
+    SUB s1, 01
+    JUMP NZ, RESULT_LOOP
+
+    ; Bir sonraki blok için başa dön
+    JUMP PROCESS_NEXT_BLOCK

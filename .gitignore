@@ -1,0 +1,17 @@
+# Simulation and build outputs
+xsim.dir/
+*.wdb
+*.jou
+*.log
+*.pb
+*.backup.*
+sim_proj/
+.Xil/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Temporary files
+*.tmp
+*.bak
