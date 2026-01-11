@@ -90,6 +90,23 @@ Addr 6: 77
 Addr 7: 88
 ```
 
+## Switching Between Encryption and Decryption
+
+To switch between modes, you need to modify 3 files:
+
+1. **Set Mode (`pico2_emulator_v12.sv`)**:
+   Inside the `S_START_ENC` state (approx. line 200), change the `out_port` value:
+   - **Encrypt:** `out_port <= 8'h01;` // Bit 1=0
+   - **Decrypt:** `out_port <= 8'h03;` // Bit 1=1
+
+2. **Select Input Data (`system_top_debug_v2.sv`)**:
+   Change the `INIT_TYPE` parameter for `ram_mem1` (approx. line 95):
+   - **Encrypt (Load Plaintext):** `.INIT_TYPE(1)`
+   - **Decrypt (Load Ciphertext):** `.INIT_TYPE(3)`
+
+3. **Update Testbench (`tb_system_debug_v2.sv`)**:
+   Update the `$display` messages to reflect the current test mode (Encryption vs Decryption).
+
 ## Key Features
 - Standard 32-round XTEA algorithm
 - Proper Big Endian byte ordering for XTEA compatibility
