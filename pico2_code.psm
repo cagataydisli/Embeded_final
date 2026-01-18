@@ -1,132 +1,137 @@
-; ==========================================================
-; PICO 2 CODE - Processor & Crypto Controller
-; Görevi: Key yükle -> FIFO'dan Oku -> XTEA Şifrele -> Mem3'e Yaz
-; ==========================================================
+;===============================================================
+; FiDEX Konfigurasyonu (Pico2)
+;===============================================================
+#ifdef PROC:: XPBLAZE6
+    #set proc::xPblaze6::scrpdSize,       64
+    #set proc::xPblaze6::clkFreq,         100000000
+    #set IODev:: defaultInstMem::en,               TRUE
+    #set IODev:: defaultInstMem::type,             mem
+    #set IODev:: defaultInstMem::size,             1024
+    #set instmem::pageSize,                        1024
+    #set instmem::pageCount,                       1
+    #set instmem::sharedMemLocation,               loMem
+    #set IODev:: defaultInstMem::value,            instmem
+    #set IODev:: defaultInstMem::vhdlen,           TRUE
+    #set IODev:: defaultInstMem::vhdlEntityName,   "pico2_rom"
+    #set IODev:: defaultInstMem::vhdlTmplFile,     "ROM_form.vhd"
+    #set IODev:: defaultInstMem::vhdlTargetFile,   "pico2_rom.vhd"
+#endif
 
-; --- Port Tanımları (system_top.sv ile uyumlu) ---
-; FIFO Ports
-CONSTANT FIFO_READ_STROBE, 10
-CONSTANT FIFO_DATA_IN,     11
-CONSTANT FIFO_STATUS,      12 ; Bit 0: Has Data (1=Var, 0=Boş)
+;===============================================================
+; Port Tanımları (HEX formatında - top.v ile uyumlu)
+;===============================================================
+; Mem2 (Key)
+#EQU port_mem2_addr,   0x20
+#EQU port_mem2_data,   0x21
 
-; Mem2 (Key) Ports
-CONSTANT KEY_ADDR_SET,     20
-CONSTANT KEY_DATA_READ,    21
+; FIFO
+#EQU port_fifo_read,   0x22
+#EQU port_fifo_status, 0x23
 
-; XTEA Ports
-CONSTANT XTEA_KEY_LOAD,    30
-CONSTANT XTEA_DATA_LOAD,   31
-CONSTANT XTEA_RESET_PTR,   32 ; Pointerları sıfırla
-CONSTANT XTEA_CONTROL,     33 ; Bit 0: Start, Bit 1: Decrypt
-CONSTANT XTEA_STATUS,      34 ; Bit 0: Ready
-CONSTANT XTEA_RESULT_READ, 35
+; XTEA
+#EQU port_xtea_key,    0x30
+#EQU port_xtea_data,   0x31
+#EQU port_xtea_ctrl,   0x33
+#EQU port_xtea_ready,  0x34
+#EQU port_xtea_res,    0x35
 
-; Mem3 (Dest) Ports
-CONSTANT MEM3_ADDR_SET,    40
-CONSTANT MEM3_DATA_WRITE,  41
+; Mem3 (Result)
+#EQU port_mem3_addr,   0x40
+#EQU port_mem3_data,   0x41
 
-; --- Register Tanımları ---
-; s0: Veri / Geçici Register
-; s1: Döngü Sayacı (Byte counter)
-; s2: Durum Bayrağı
-; s3: Mem2 (Key) Adresi
-; s4: Mem3 (Dest) Adresi
-; s5: Şifreleme Modu (00: Encrypt, 02: Decrypt - Bit 1 set ise decrypt)
+;===============================================================
+; Register Tanımları
+;===============================================================
+#EQU s_cnt,        s0      ; Genel Sayaç / Byte İşaretçisi
+#EQU s_data,       s1      ; Veri ve Durum Registeri
+#EQU s_res_ptr,    s2      ; Sonuç Adres İşaretçisi
 
+;===============================================================
+; MAIN PROGRAM (Adres 0x000)
+;===============================================================
+#ORG ADDR, 0
 START:
-    LOAD s3, 00 ; Anahtar Adresi Başlangıç
-    LOAD s4, 00 ; Hedef Adres Başlangıç
-    LOAD s5, 00 ; Mod: Encrypt (Decrypt için LOAD s5, 02 yap)
+    LOAD s_res_ptr, 0x00     ; Sonuç işaretçisini sıfırla
 
-    ; Önce XTEA Pointerlarını Sıfırla
-    OUTPUT s0, XTEA_RESET_PTR
-
-; ----------------------------------------------------------
-; ADIM 1: ANAHTARI YÜKLE (16 Byte - 128 bit)
-; ----------------------------------------------------------
-LOAD_KEY:
-    LOAD s1, 10 ; 16 (Decimal 16 = Hex 10) byte yükleyeceğiz
-
-KEY_LOOP:
-    ; Key Adresini Set Et
-    OUTPUT s3, KEY_ADDR_SET
+MAIN_LOOP:
+    CALL READ_KEY
+    CALL READ_DATA_FIFO
+    CALL RUN_XTEA
+    CALL READ_WRITE_RESULT
     
-    ; Key Verisini Oku
-    INPUT s0, KEY_DATA_READ
+    ; İşlem bitti, durdurabiliriz veya başa dönebiliriz
+    JUMP STOP
+
+;===============================================================
+; 1. READ KEY (Mem2'den 16 Byte Oku ve XTEA'ya yükle)
+;===============================================================
+READ_KEY:
+    LOAD s_cnt, 0x00         ; Sayaç sıfırla
+READ_KEY_LOOP:
+    WRPRT s_cnt, port_mem2_addr    ; Adresi Port 20'ye yaz
+    RDPRT  s_data, port_mem2_data   ; Veriyi Port 21'den oku
+    WRPRT s_data, port_xtea_key    ; XTEA Key Portuna (30) yaz
     
-    ; XTEA Key Portuna Yaz (Otomatik pointer artar)
-    OUTPUT s0, XTEA_KEY_LOAD
+    ADD s_cnt, 0x01
+    COMP s_cnt, 0x10         ; 16 Byte (0x10) oldu mu?
+    JUMP NZ, READ_KEY_LOOP
+    RET
+
+;===============================================================
+; 2. READ DATA (FIFO'dan 8 Byte Oku ve XTEA'ya yükle)
+;===============================================================
+READ_DATA_FIFO:
+    LOAD s_cnt, 0x00
+READ_FIFO_LOOP:
+    ; FIFO boş mu kontrol et, dolana kadar bekle
+WAIT_FIFO_NOT_EMPTY:
+    RDPRT s_data, port_fifo_status  ; FIFO durumunu oku (Port 23)
+    TEST s_data, 0x01                 ; empty bit (Bit 0) 1 mi?
+    JUMP NZ, WAIT_FIFO_NOT_EMPTY    ; Boşsa bekle
     
-    ; Adres ve Sayaç Güncelle
-    ADD s3, 01
-    SUB s1, 01
-    JUMP NZ, KEY_LOOP ; 16 bayt bitmediyse devam
-
-; ----------------------------------------------------------
-; ADIM 2: VERİ İŞLEME DÖNGÜSÜ (Process Loop)
-; ----------------------------------------------------------
-PROCESS_NEXT_BLOCK:
-    LOAD s1, 08 ; XTEA Bloğu 8 Byte (64-bit)
-
-FETCH_BLOCK:
-    ; FIFO'da Veri Var mı?
-    INPUT s2, FIFO_STATUS
-    AND s2, 01
-    JUMP Z, FETCH_BLOCK ; Veri yoksa bekle (Empty)
-
-    ; FIFO Read Strobe gönder (Bir sonraki veriyi hazırlar)
-    OUTPUT s0, FIFO_READ_STROBE
+    ; FIFO'da veri var, oku
+    RDPRT s_data, port_fifo_read    ; FIFO'dan oku (Port 22)
+    WRPRT s_data, port_xtea_data   ; XTEA Data Portuna (31) yaz
     
-    ; Veriyi Oku (FIFO_DATA_IN portundan)
-    INPUT s0, FIFO_DATA_IN
+    ADD s_cnt, 0x01
+    COMP s_cnt, 0x08         ; 8 Byte oldu mu?
+    JUMP NZ, READ_FIFO_LOOP
+    RET
+
+;===============================================================
+; 3. RUN XTEA (Şifrelemeyi Başlat)
+;===============================================================
+RUN_XTEA:
+    ; Mode Setup:
+    ; 03h = Decrypt + Start (Bit 1=1, Bit 0=1)
+    ; 01h = Encrypt + Start (Bit 1=0, Bit 0=1)
+    LOAD s_data, 0x01        ; Decrypt Modu
+    WRPRT s_data, port_xtea_ctrl
+
+WAIT_READY:
+    RDPRT s_data, port_xtea_ready
+    TEST s_data, 0x01        ; Ready biti (Bit 0) 1 mi?
+    JUMP Z, WAIT_READY     ; 0 ise bekle
+    RET
+
+;===============================================================
+; 4. READ RESULT (XTEA'dan oku, Mem3'e yaz)
+;===============================================================
+READ_WRITE_RESULT:
+    LOAD s_cnt, 0x00
     
-    ; XTEA Data Portuna Yaz
-    OUTPUT s0, XTEA_DATA_LOAD
-    
-    ; 8 Byte tamamlandı mı?
-    SUB s1, 01
-    JUMP NZ, FETCH_BLOCK
-
-; ----------------------------------------------------------
-; ADIM 3: ŞİFRELEME / DEŞİFRELEME BAŞLAT
-; ----------------------------------------------------------
-START_XTEA:
-    ; Kontrol Portuna Yaz (Bit 0: Start, Bit 1: Decrypt/Mode)
-    ; s5 register'ında mod bilgisi var (0 veya 2)
-    LOAD s0, 01 ; Start Bit
-    OR s0, s5   ; Mod ile birleştir
-    OUTPUT s0, XTEA_CONTROL
-
-WAIT_XTEA:
-    ; XTEA Ready olana kadar bekle
-    INPUT s2, XTEA_STATUS
-    AND s2, 01
-    JUMP Z, WAIT_XTEA ; Ready=0 ise bekle
-
-; ----------------------------------------------------------
-; ADIM 4: SONUCU AL VE KAYDET
-; ----------------------------------------------------------
-SAVE_RESULT:
-    LOAD s1, 08 ; 8 Byte sonuç okuyacağız
-
 RESULT_LOOP:
-    ; XTEA Sonucunu Oku (Her okumada internal pointer artar)
-    ; Okumadan önce veya okuma sırasında strobe gerekebilir ama
-    ; bizim tasarımda INPUT işlemi otomatik data getiriyor.
-    ; ÖNEMLİ: system_top'da 0x35'ten okumak için 'Read Strobe' kullanıldı.
-    ; PicoBlaze INPUT komutu otomatik Read Strobe üretir.
-    INPUT s0, XTEA_RESULT_READ
+    RDPRT s_data, port_xtea_res      ; Sonucu oku (Port 35)
     
-    ; Hedef Adresi Set Et
-    OUTPUT s4, MEM3_ADDR_SET
+    WRPRT s_res_ptr, port_mem3_addr ; Mem3 Adresini ayarla
+    WRPRT s_data, port_mem3_data    ; Mem3 Verisini yaz
     
-    ; Hedef Veriyi Yaz (Otomatik Write Enable oluşur)
-    OUTPUT s0, MEM3_DATA_WRITE
+    ADD s_res_ptr, 0x01                ; Sonuç işaretçisini arttır
+    ADD s_cnt, 0x01                    ; Döngü sayacını arttır
     
-    ; Adresi ve Sayacı Güncelle
-    ADD s4, 01
-    SUB s1, 01
+    COMP s_cnt, 0x08                   ; 8 Byte bitti mi?
     JUMP NZ, RESULT_LOOP
+    RET
 
-    ; Bir sonraki blok için başa dön
-    JUMP PROCESS_NEXT_BLOCK
+STOP:
+    JUMP STOP ; Sonsuz döngü

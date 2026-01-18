@@ -3,17 +3,17 @@
 module single_port_ram #(
     parameter INIT_TYPE = 0 // 0: Empty, 1: Plaintext, 2: Ciphertext
 )(
-    input logic clk,
-    input logic we,
-    input logic [7:0] addr,
-    input logic [7:0] din,
-    output logic [7:0] dout
+    input wire clk,
+    input wire we,
+    input wire [7:0] addr,
+    input wire [7:0] din,
+    output reg [7:0] dout
 );
 
-    logic [7:0] ram [0:255];
+    reg [7:0] ram [0:255];
+    integer i;
 
     initial begin
-        integer i;
         for (i = 0; i < 256; i = i + 1) begin
             ram[i] = 0;
         end
@@ -47,19 +47,19 @@ module single_port_ram #(
             ram[14] = 8'h0E;
             ram[15] = 8'h0F;
         end else if (INIT_TYPE == 3) begin
-            // Ciphertext: C3 B9 0E B5 22 56 FE 61
-            ram[0] = 8'hC3;
-            ram[1] = 8'hB9;
-            ram[2] = 8'h0E;
-            ram[3] = 8'hB5;
+            // Ciphertext from encryption of 11 22 33 44 55 66 77 88
+            ram[0] = 8'hc3;
+            ram[1] = 8'hb9;
+            ram[2] = 8'h0e;
+            ram[3] = 8'hb5;
             ram[4] = 8'h22;
             ram[5] = 8'h56;
-            ram[6] = 8'hFE;
+            ram[6] = 8'hfe;
             ram[7] = 8'h61;
         end
     end
 
-    always_ff @(posedge clk) begin
+    always @(posedge clk) begin
         if (we) begin
             ram[addr] <= din;
         end

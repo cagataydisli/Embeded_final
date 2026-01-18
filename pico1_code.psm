@@ -1,44 +1,59 @@
-; ==========================================================
-; PICO 1 CODE - Data Fetcher
-; Görevi: Main Mem1'den veriyi okuyup Comm Buffer (FIFO)'ya atar.
-; ==========================================================
+;===============================================================
+; FiDEX Konfigurasyonu (Pico1)
+;===============================================================
+#ifdef PROC:: XPBLAZE6
+    #set proc::xPblaze6::scrpdSize,       64
+    #set proc::xPblaze6::clkFreq,         100000000
+    #set IODev:: defaultInstMem::en,               TRUE
+    #set IODev:: defaultInstMem::type,             mem
+    #set IODev:: defaultInstMem::size,             1024
+    #set instmem::pageSize,                        1024
+    #set instmem::pageCount,                       1
+    #set instmem::sharedMemLocation,               loMem
+    #set IODev:: defaultInstMem::value,            instmem
+    #set IODev:: defaultInstMem::vhdlen,           TRUE
+    #set IODev:: defaultInstMem::vhdlEntityName,   "pico1_rom"
+    #set IODev:: defaultInstMem::vhdlTmplFile,     "ROM_form.vhd"
+    #set IODev:: defaultInstMem::vhdlTargetFile,   "pico1_rom.vhd"
+#endif
 
-; --- Port Tanımları (system_top.sv ile uyumlu) ---
-CONSTANT MEM_ADDR_PORT, 01  ; Çıkış: Bellek Adresi
-CONSTANT MEM_DATA_PORT, 02  ; Giriş: Bellek Verisi
-CONSTANT FIFO_DATA_PORT, 03 ; Çıkış: FIFO Veri Yaz
-CONSTANT FIFO_STATUS_PORT, 04 ; Giriş: FIFO Dolu mu? (Bit 0: Full)
+;===============================================================
+; Port Tanımları (HEX formatında - top.v ile uyumlu)
+;===============================================================
+#EQU port_mem1_addr,   0x30      ; Out: Mem1 Adresi
+#EQU port_mem1_data,   0x31      ; In:  Mem1 Verisi
+#EQU port_fifo_data,   0x20      ; Out: FIFO Verisi
 
-; --- Register Tanımları ---
-; s0: Bellekten okunan veri
-; s1: Mevcut Adres Sayacı
-; s2: FIFO Durum Bayrağı
-; s3: Genel Amaçlı
+;===============================================================
+; Register Tanımları
+;===============================================================
+#EQU s_addr_cnt,       s0      ; Adres Sayacı
+#EQU s_data_buf,       s1      ; Veri Tamponu
 
+;===============================================================
+; MAIN PROGRAM (Adres 0x000)
+;===============================================================
+#ORG ADDR, 0
 START:
-    LOAD s1, 00             ; Adres sayacını sıfırla
+    ; Registerları sıfırla
+    LOAD s_addr_cnt, 0x00
 
-MAIN_LOOP:
-    ; 1. Bellek Adresini Ayarla
-    OUTPUT s1, MEM_ADDR_PORT
+LOOP:
+    ; 1. Adresi Ayarla (Mem1)
+    WRPRT s_addr_cnt, port_mem1_addr
     
-    ; 2. Veriyi Oku (Bellek gecikmesi varsa NOP eklenebilir ama cycle yeterli)
-    INPUT s0, MEM_DATA_PORT
+    ; 2. Veriyi Oku (Mem1)
+    RDPRT s_data_buf, port_mem1_data
     
-CHECK_FIFO:
-    ; 3. FIFO Dolu mu Kontrol Et
-    INPUT s2, FIFO_STATUS_PORT
-    AND s2, 01              ; Maskeleme (LSB Full flag)
-    JUMP NZ, CHECK_FIFO     ; Eğer 1 ise (Dolu) tekrar kontrol et
+    ; 3. Veriyi FIFO'ya Yaz
+    WRPRT s_data_buf, port_fifo_data
+    
+    ; 4. Sayacı Arttır
+    ADD s_addr_cnt, 0x01
+    
+    ; 8 byte okundu mu kontrol et (0'dan 7'ye)
+    COMP s_addr_cnt, 0x08
+    JUMP NZ, LOOP ; Eşit değilse döngüye devam
 
-WRITE_FIFO:
-    ; 4. Veriyi FIFO'ya Yaz
-    OUTPUT s0, FIFO_DATA_PORT
-    
-    ; 5. Adresi Artır
-    ADD s1, 01
-    
-    ; 6. Döngü (Sonsuza kadar veya belirli bir yere kadar)
-    ; Örnek: 64 Byte sonra dursun istersen buraya kontrol koyabilirsin.
-    ; Şimdilik sonsuz döngü yaparak sürekli veri basıyor.
-    JUMP MAIN_LOOP
+STOP:
+    JUMP STOP ; Sonsuz döngü (Halt)
